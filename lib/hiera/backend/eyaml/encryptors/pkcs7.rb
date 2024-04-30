@@ -20,15 +20,9 @@ class Hiera
                                    type: :string, },
             public_key_env_var: { desc: 'Name of environment variable to read public key from',
                                   type: :string, },
-            subject: { desc: 'Subject to use for certificate when creating keys',
-                       type: :string,
-                       default: '/', },
             keysize: { desc: 'Key size used for encryption',
                        type: :integer,
                        default: 2048, },
-            digest: { desc: 'Hash function used for PKCS7',
-                      type: :string,
-                      default: 'SHA256', },
           }
 
           self.tag = 'PKCS7'
@@ -63,37 +57,16 @@ class Hiera
 
             public_key = option :public_key
             private_key = option :private_key
-            subject = option :subject
             keysize = option :keysize
-            digest = option :digest
 
             key = OpenSSL::PKey::RSA.new(keysize)
             EncryptHelper.ensure_key_dir_exists private_key
             EncryptHelper.write_important_file filename: private_key, content: key.to_pem, mode: 0o600
 
             cert = OpenSSL::X509::Certificate.new
-            cert.subject = OpenSSL::X509::Name.parse(subject)
             cert.serial = 1
-            cert.version = 2
-            cert.not_before = Time.now
-            cert.not_after = if 1.size == 8 # 64bit
-                               Time.now + (50 * 365 * 24 * 60 * 60)
-                             else                                  # 32bit
-                               Time.at(0x7fffffff)
-                             end
             cert.public_key = key.public_key
-
-            ef = OpenSSL::X509::ExtensionFactory.new
-            ef.subject_certificate = cert
-            ef.issuer_certificate = cert
-            cert.extensions = [
-              ef.create_extension('basicConstraints', 'CA:TRUE', true),
-              ef.create_extension('subjectKeyIdentifier', 'hash'),
-            ]
-            cert.add_extension ef.create_extension('authorityKeyIdentifier',
-                                                   'keyid:always,issuer:always')
-
-            cert.sign key, OpenSSL::Digest.new(digest)
+            cert.sign(key, OpenSSL::Digest::SHA256.new)
 
             EncryptHelper.ensure_key_dir_exists public_key
             EncryptHelper.write_important_file filename: public_key, content: cert.to_pem
